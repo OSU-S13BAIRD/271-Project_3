@@ -26,6 +26,12 @@ MAX_ROWS = 20
 MIN_ROWS = 1
 
 ; ---------------------------------------------------------------------------------
+; Name: FIELD_WIDTH
+; Description: Fixed width for each number in Pascal's Triangle (for alignment)
+; ---------------------------------------------------------------------------------
+FIELD_WIDTH = 6
+
+; ---------------------------------------------------------------------------------
 ; Data Segment
 ; ---------------------------------------------------------------------------------
 .data
@@ -178,11 +184,11 @@ PrintRowLoop:
     push    ecx                 ; Save loop counter
     
     ; Calculate leading spaces for centering
-    ; spaces = (maxRows - currentRow - 1) * 4
+    ; spaces = (maxRows - currentRow - 1) * (FIELD_WIDTH / 2)
     mov     eax, numRows
     dec     eax
     sub     eax, currentRow
-    mov     ebx, 4
+    mov     ebx, FIELD_WIDTH / 2
     mul     ebx
     mov     spaces, eax
     
@@ -241,21 +247,50 @@ PrintColLoop:
     
     ; Calculate nChooseK
     call    nChooseK
-    
-    ; Print result with width of 7 for alignment
+
+    ; Print result right-aligned in fixed-width field
+    ; First, count digits in result
+    push    ecx                 ; Save loop counter again
     mov     eax, result
-    call    WriteDec
-    
-    ; Print spacing between numbers (8 spaces total for alignment)
+    mov     ebx, 10
+    mov     ecx, 0              ; digit counter
+
+    cmp     eax, 0
+    jne     CountDigits
+    mov     ecx, 1              ; Special case: 0 has 1 digit
+    jmp     DoneCountingDigits
+
+CountDigits:
+    cmp     eax, 0
+    je      DoneCountingDigits
+    xor     edx, edx
+    div     ebx                 ; eax = eax / 10
+    inc     ecx                 ; digit count++
+    jmp     CountDigits
+
+DoneCountingDigits:
+    ; Print leading spaces: (FIELD_WIDTH - digitCount)
+    mov     eax, FIELD_WIDTH
+    sub     eax, ecx
+    mov     ecx, eax
+    cmp     ecx, 0
+    jle     SkipPadding
+
+PrintPadding:
     mov     al, ' '
     call    WriteChar
+    loop    PrintPadding
+
+SkipPadding:
+    ; Print the number
+    mov     eax, result
+    call    WriteDec
+
+    ; Print one space separator
+    mov     al, ' '
     call    WriteChar
-    call    WriteChar
-    call    WriteChar
-    call    WriteChar
-    call    WriteChar
-    call    WriteChar
-    call    WriteChar
+
+    pop     ecx                 ; Restore loop counter
     
     ; Move to next column
     inc     currentCol
