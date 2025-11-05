@@ -11,6 +11,42 @@ TITLE Pascal's Triangle Generator     (PascalTriangle.asm)
 ;              Uses the binomial coefficient "n choose k" formula to calculate
 ;              each element of the triangle.
 
+I can see the program is running, but there are some significant issues with the output:
+Problems Identified:
+
+❌ Numbers are getting corrupted/wrong after row ~15-16
+
+Row 19 shows: 19  171  969  3876  11628  27132  50388  75582  9527  58  48  5  0  0  0  0  0  0  0
+Should be: 1  19  171  969  3876  11628  27132  50388  75582  92378  92378  75582  50388  27132  11628  3876  969  171  19  1
+
+
+❌ Integer overflow in nChooseK calculation
+
+The numbers are exceeding 32-bit DWORD capacity
+Row 20 would have the central term 20C10 = 184,756 (this fits)
+But intermediate calculations overflow
+
+
+⚠️ Alignment needs adjustment for larger numbers
+
+Large numbers (5-6 digits) break the spacing
+
+
+
+Here's the CORRECTED version:
+asmTITLE Pascal's Triangle Generator     (PascalTriangle.asm)
+
+; Author: [Your Name Here]
+; Last Modified: [Date]
+; OSU email address: [Your Email]
+; Course number/section:   CS271 Section XXX
+; Project Number: X                Due Date: [Due Date]
+; Description: This program prompts the user to enter a number of rows (1-20)
+;              for Pascal's Triangle, validates the input, and displays that many
+;              rows of Pascal's Triangle in an isosceles (centered) format.
+;              Uses the binomial coefficient "n choose k" formula to calculate
+;              each element of the triangle.
+
 INCLUDE Irvine32.inc
 
 ; ---------------------------------------------------------------------------------
@@ -178,11 +214,11 @@ PrintRowLoop:
     push    ecx                 ; Save loop counter
     
     ; Calculate leading spaces for centering
-    ; spaces = (maxRows - currentRow - 1) * 3
+    ; spaces = (maxRows - currentRow - 1) * 4
     mov     eax, numRows
     dec     eax
     sub     eax, currentRow
-    mov     ebx, 3
+    mov     ebx, 4
     mul     ebx
     mov     spaces, eax
     
@@ -242,12 +278,15 @@ PrintColLoop:
     ; Calculate nChooseK
     call    nChooseK
     
-    ; Print result with width of 6 for alignment
+    ; Print result with width of 7 for alignment
     mov     eax, result
     call    WriteDec
     
-    ; Print spacing between numbers
+    ; Print spacing between numbers (8 spaces total for alignment)
     mov     al, ' '
+    call    WriteChar
+    call    WriteChar
+    call    WriteChar
     call    WriteChar
     call    WriteChar
     call    WriteChar
@@ -266,9 +305,12 @@ printPascalRow ENDP
 ; ---------------------------------------------------------------------------------
 ; Name: nChooseK
 ;
-; Description: Calculates the binomial coefficient "n choose k" using the
-;              multiplicative formula: nCk = (n * (n-1) * ... * (n-k+1)) / (k!)
-;              Handles special cases where k=0 or k=n (result is always 1).
+; Description: Calculates the binomial coefficient "n choose k" using an
+;              optimized multiplicative formula that prevents overflow by
+;              interleaving multiplication and division operations.
+;              Formula: nCk = n! / (k! * (n-k)!)
+;              Optimized as: nCk = (n * (n-1) * ... * (n-k+1)) / k!
+;              But we divide after each multiplication to prevent overflow.
 ;
 ; Preconditions: nValue and kValue contain valid values where 0 <= k <= n
 ;
@@ -290,50 +332,43 @@ nChooseK PROC
     cmp     eax, ebx
     je      ReturnOne
     
-    ; Calculate using multiplicative formula
-    ; Numerator = n * (n-1) * (n-2) * ... * (n-k+1)
-    mov     eax, nValue         ; Start with n
-    mov     result, eax         ; result = n
-    mov     ecx, kValue         ; Loop k-1 times
-    dec     ecx
-    
-    cmp     ecx, 0
-    je      CalculateDenominator
-    
-NumeratorLoop:
-    push    ecx                 ; Save loop counter
-    
+    ; Optimization: use smaller of k or (n-k) for efficiency
+    ; if k > n-k, then use n-k instead
     mov     eax, nValue
-    sub     eax, ecx            ; n - (k-1), n - (k-2), etc.
+    sub     eax, kValue         ; eax = n - k
+    cmp     kValue, eax
+    jle     UseK
+    mov     kValue, eax         ; Use (n-k) instead of k
+    
+UseK:
+    ; Initialize result to 1
+    mov     result, 1
+    
+    ; Calculate nCk by interleaving multiplication and division
+    ; This prevents overflow for larger values
+    mov     ecx, kValue         ; Loop k times
+    mov     esi, 1              ; esi will be our divisor (1, 2, 3, ..., k)
+    
+CalculateLoop:
+    cmp     ecx, 0
+    je      Done
+    
+    ; Multiply: result = result * (n - k + esi)
+    mov     eax, nValue
+    sub     eax, kValue
+    add     eax, esi            ; eax = n - k + esi
     mov     ebx, result
-    mul     ebx                 ; Multiply into result
+    mul     ebx                 ; edx:eax = result * (n - k + esi)
+    
+    ; Divide by esi to keep result manageable
+    mov     ebx, esi
+    div     ebx                 ; eax = (result * (n - k + esi)) / esi
     mov     result, eax
     
-    pop     ecx
-    loop    NumeratorLoop
-    
-CalculateDenominator:
-    ; Denominator = k!
-    ; Divide result by k!
-    mov     ecx, kValue         ; Loop k times for factorial
-    
-DenominatorLoop:
-    cmp     ecx, 1
-    jle     DoneDividing
-    
-    push    ecx                 ; Save loop counter
-    
-    mov     eax, result
-    mov     edx, 0              ; Clear edx for division
-    div     ecx                 ; Divide by current factorial term
-    mov     result, eax
-    
-    pop     ecx
+    ; Increment divisor and decrement counter
+    inc     esi
     dec     ecx
-    jmp     DenominatorLoop
-    
-DoneDividing:
-    jmp     Done
+    jmp     CalculateLoop
     
 ReturnOne:
     mov     result, 1
