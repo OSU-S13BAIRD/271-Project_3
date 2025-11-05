@@ -1,46 +1,10 @@
 TITLE Pascal's Triangle Generator     (PascalTriangle.asm)
 
 ; Author: Samuel Baird
-; Last Modified: 
-; OSU email address: bairsamu@oregonsate.edu
+; Last Modified: 11/05/2025
+; OSU email address: bairsamu@oregonstate.edu
 ; Course number/section:   CS271 Section 400
 ; Project Number: 4                Due Date: [Due Date]
-; Description: This program prompts the user to enter a number of rows (1-20)
-;              for Pascal's Triangle, validates the input, and displays that many
-;              rows of Pascal's Triangle in an isosceles (centered) format.
-;              Uses the binomial coefficient "n choose k" formula to calculate
-;              each element of the triangle.
-
-I can see the program is running, but there are some significant issues with the output:
-Problems Identified:
-
-❌ Numbers are getting corrupted/wrong after row ~15-16
-
-Row 19 shows: 19  171  969  3876  11628  27132  50388  75582  9527  58  48  5  0  0  0  0  0  0  0
-Should be: 1  19  171  969  3876  11628  27132  50388  75582  92378  92378  75582  50388  27132  11628  3876  969  171  19  1
-
-
-❌ Integer overflow in nChooseK calculation
-
-The numbers are exceeding 32-bit DWORD capacity
-Row 20 would have the central term 20C10 = 184,756 (this fits)
-But intermediate calculations overflow
-
-
-⚠️ Alignment needs adjustment for larger numbers
-
-Large numbers (5-6 digits) break the spacing
-
-
-
-Here's the CORRECTED version:
-asmTITLE Pascal's Triangle Generator     (PascalTriangle.asm)
-
-; Author: [Your Name Here]
-; Last Modified: [Date]
-; OSU email address: [Your Email]
-; Course number/section:   CS271 Section XXX
-; Project Number: X                Due Date: [Due Date]
 ; Description: This program prompts the user to enter a number of rows (1-20)
 ;              for Pascal's Triangle, validates the input, and displays that many
 ;              rows of Pascal's Triangle in an isosceles (centered) format.
@@ -66,7 +30,7 @@ MIN_ROWS = 1
 ; ---------------------------------------------------------------------------------
 .data
     ; Introduction strings
-    programTitle    BYTE    "Pascal's Triangle Generator - Programmed by [Your Name]", 0
+    programTitle    BYTE    "Pascal's Triangle Generator - Programmed by Samuel Baird", 0
     intro1          BYTE    "This program will print up to 20 rows of Pascal's Triangle, per your specification!", 0
     ec1             BYTE    "**EC: This program aligns the triangle to appear isosceles (symmetric).", 0
     ec2             BYTE    "**EC: This program prints up to 20 rows of Pascal's Triangle.", 0
@@ -306,13 +270,13 @@ printPascalRow ENDP
 ; Name: nChooseK
 ;
 ; Description: Calculates the binomial coefficient "n choose k" using an
-;              optimized multiplicative formula that prevents overflow by
-;              interleaving multiplication and division operations.
-;              Formula: nCk = n! / (k! * (n-k)!)
-;              Optimized as: nCk = (n * (n-1) * ... * (n-k+1)) / k!
-;              But we divide after each multiplication to prevent overflow.
+;              optimized multiplicative formula with proper overflow handling.
+;              Formula: C(n,k) = n! / (k! * (n-k)!)
+;              Optimized: C(n,k) = [n * (n-1) * ... * (n-k+1)] / [k * (k-1) * ... * 1]
+;              We calculate iteratively: result = n, then for i=1 to k-1:
+;                  result = result * (n-i) / (i+1)
 ;
-; Preconditions: nValue and kValue contain valid values where 0 <= k <= n
+; Preconditions: nValue and kValue contain valid values where 0 <= k <= n <= 20
 ;
 ; Postconditions: result contains the calculated binomial coefficient
 ;
@@ -322,59 +286,67 @@ printPascalRow ENDP
 ; Returns: result = nCk (global variable)
 ; ---------------------------------------------------------------------------------
 nChooseK PROC
+    pushad                      ; Save all registers
+    
     ; Check special cases: k=0 or k=n
     mov     eax, kValue
     cmp     eax, 0
-    je      ReturnOne
+    je      SetResultOne        ; C(n,0) = 1
     
-    mov     eax, kValue
     mov     ebx, nValue
     cmp     eax, ebx
-    je      ReturnOne
+    je      SetResultOne        ; C(n,n) = 1
     
-    ; Optimization: use smaller of k or (n-k) for efficiency
-    ; if k > n-k, then use n-k instead
+    ; Use symmetry property: C(n,k) = C(n,n-k)
+    ; Always calculate with smaller k to minimize iterations
     mov     eax, nValue
     sub     eax, kValue         ; eax = n - k
     cmp     kValue, eax
-    jle     UseK
-    mov     kValue, eax         ; Use (n-k) instead of k
+    jle     NoSwap
+    mov     kValue, eax         ; Use (n-k) if it's smaller
     
-UseK:
-    ; Initialize result to 1
-    mov     result, 1
-    
-    ; Calculate nCk by interleaving multiplication and division
-    ; This prevents overflow for larger values
-    mov     ecx, kValue         ; Loop k times
-    mov     esi, 1              ; esi will be our divisor (1, 2, 3, ..., k)
-    
-CalculateLoop:
-    cmp     ecx, 0
-    je      Done
-    
-    ; Multiply: result = result * (n - k + esi)
+NoSwap:
+    ; Calculate C(n,k) where k is now minimized
+    ; Start with result = n
     mov     eax, nValue
-    sub     eax, kValue
-    add     eax, esi            ; eax = n - k + esi
-    mov     ebx, result
-    mul     ebx                 ; edx:eax = result * (n - k + esi)
+    mov     edi, eax            ; edi holds our result
     
-    ; Divide by esi to keep result manageable
-    mov     ebx, esi
-    div     ebx                 ; eax = (result * (n - k + esi)) / esi
-    mov     result, eax
+    ; Check if k = 1 (then result is just n)
+    mov     eax, kValue
+    cmp     eax, 1
+    je      SetResult
     
-    ; Increment divisor and decrement counter
-    inc     esi
-    dec     ecx
-    jmp     CalculateLoop
+    ; Loop from i=1 to k-1
+    mov     esi, 1              ; esi = loop counter i
     
-ReturnOne:
-    mov     result, 1
+CalcLoop:
+    cmp     esi, kValue
+    jge     SetResult           ; if i >= k, we're done
     
-Done:
+    ; Multiply: result = result * (n - i)
+    mov     eax, nValue
+    sub     eax, esi            ; eax = n - i
+    mul     edi                 ; edx:eax = result * (n - i)
+    mov     edi, eax            ; edi = result * (n - i) (keep in eax for division)
+    
+    ; Divide: result = result / (i + 1)
+    inc     esi                 ; i = i + 1
+    mov     edx, 0              ; Clear edx for division
+    mov     eax, edi            ; Load current result
+    mov     ebx, esi            ; ebx = i + 1
+    div     ebx                 ; eax = result / (i + 1)
+    mov     edi, eax            ; Store back in edi
+    
+    jmp     CalcLoop
+    
+SetResultOne:
+    mov     edi, 1
+    
+SetResult:
+    mov     result, edi
+    popad                       ; Restore all registers
     ret
+    
 nChooseK ENDP
 
 ; ---------------------------------------------------------------------------------
