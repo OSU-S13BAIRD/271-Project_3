@@ -4,7 +4,7 @@ TITLE Pascal's Triangle Generator     (PascalTriangle.asm)
 ; Last Modified: 11/05/2025
 ; OSU email address: bairsamu@oregonstate.edu
 ; Course number/section:   CS271 Section 400
-; Project Number: 4                Due Date: [Due Date]
+; Project Number: 4                Due Date: 11/16/2025
 ; Description: This program prompts the user to enter a number of rows (1-20)
 ;              for Pascal's Triangle, validates the input, and displays that many
 ;              rows of Pascal's Triangle in an isosceles (centered) format.
@@ -270,11 +270,10 @@ printPascalRow ENDP
 ; Name: nChooseK
 ;
 ; Description: Calculates the binomial coefficient "n choose k" using an
-;              optimized multiplicative formula with proper overflow handling.
-;              Formula: C(n,k) = n! / (k! * (n-k)!)
-;              Optimized: C(n,k) = [n * (n-1) * ... * (n-k+1)] / [k * (k-1) * ... * 1]
-;              We calculate iteratively: result = n, then for i=1 to k-1:
-;                  result = result * (n-i) / (i+1)
+;              optimized multiplicative formula with careful overflow prevention.
+;              Uses the formula C(n,k) = n!/(k!(n-k)!) computed as:
+;              C(n,k) = (n-k+1)/1 * (n-k+2)/2 * (n-k+3)/3 * ... * n/k
+;              Each step multiplies by numerator then divides by denominator.
 ;
 ; Preconditions: nValue and kValue contain valid values where 0 <= k <= n <= 20
 ;
@@ -298,7 +297,7 @@ nChooseK PROC
     je      SetResultOne        ; C(n,n) = 1
     
     ; Use symmetry property: C(n,k) = C(n,n-k)
-    ; Always calculate with smaller k to minimize iterations
+    ; Always calculate with smaller k to minimize iterations and overflow risk
     mov     eax, nValue
     sub     eax, kValue         ; eax = n - k
     cmp     kValue, eax
@@ -306,37 +305,32 @@ nChooseK PROC
     mov     kValue, eax         ; Use (n-k) if it's smaller
     
 NoSwap:
-    ; Calculate C(n,k) where k is now minimized
-    ; Start with result = n
-    mov     eax, nValue
-    mov     edi, eax            ; edi holds our result
+    ; Initialize result = 1
+    mov     edi, 1              ; edi holds our accumulating result
     
-    ; Check if k = 1 (then result is just n)
-    mov     eax, kValue
-    cmp     eax, 1
-    je      SetResult
-    
-    ; Loop from i=1 to k-1
-    mov     esi, 1              ; esi = loop counter i
+    ; Loop through i = 1 to k
+    ; In each iteration: result = result * (n - k + i) / i
+    mov     esi, 1              ; esi = loop counter i (1 to k)
     
 CalcLoop:
-    cmp     esi, kValue
-    jge     SetResult           ; if i >= k, we're done
+    mov     eax, kValue
+    cmp     esi, eax
+    jg      SetResult           ; if i > k, we're done
     
-    ; Multiply: result = result * (n - i)
+    ; Calculate numerator factor: (n - k + i)
     mov     eax, nValue
-    sub     eax, esi            ; eax = n - i
-    mul     edi                 ; edx:eax = result * (n - i)
-    mov     edi, eax            ; edi = result * (n - i) (keep in eax for division)
+    sub     eax, kValue
+    add     eax, esi            ; eax = n - k + i
     
-    ; Divide: result = result / (i + 1)
-    inc     esi                 ; i = i + 1
-    mov     edx, 0              ; Clear edx for division
-    mov     eax, edi            ; Load current result
-    mov     ebx, esi            ; ebx = i + 1
-    div     ebx                 ; eax = result / (i + 1)
-    mov     edi, eax            ; Store back in edi
+    ; Multiply: result = result * (n - k + i)
+    mul     edi                 ; edx:eax = edi * (n - k + i)
     
+    ; Divide: result = result / i
+    mov     ebx, esi            ; ebx = i
+    div     ebx                 ; eax = (result * (n - k + i)) / i
+    mov     edi, eax            ; Store result back
+    
+    inc     esi                 ; i++
     jmp     CalcLoop
     
 SetResultOne:
